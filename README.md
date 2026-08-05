@@ -26,6 +26,7 @@ I trained the models in isolation for 20000 training episodes and measured their
 I used a policy and target DQN structure with a replay buffer capacity of 50000, and epsilon-greedy approach with constant decay over 8000 episodes, fixed learning rate of 0.001, batch size of 64, reward shaping rate of 0.05 (how much winning or losing in one game impacts gradients), and gamma = 0.99 (future reward multiplier, so model could think ahead). I also randomly selected a play or signal training episode (probability 0.5 each) at every step. Evaluation was run every 1000 episodes with 300 games of random v.s. DQN + bot teams to isolate the models. I also conducted collaborative tests (fully DQN team v.s. random) to check for the emergence of cooperation. 
 
 ## What "Signal12" Looks Like
+![User Interface](Signal12.png)
 
 ## Usage
 
@@ -40,27 +41,10 @@ python play.py --signal-checkpoint checkpoints/signal_agent_final.pt \
                 --play-checkpoint checkpoints/play_agent_final.pt
 ```
 
-Checkpoints from a short (6,000-episode) validation run are included in
-`checkpoints/`. In that run, `play_agent` reached ~55-59% against a fully
-random opponent, while `signal_agent` stayed close to chance (~48-52%) —
-signaling is the harder credit-assignment problem here, since its effect
-on the outcome is one step removed (signal → bot's deterministic play →
-round result) and it has to learn a convention essentially from scratch.
-Expect `signal_agent` to need noticeably more training episodes than
-`play_agent`; if it's still flat after tens of thousands of episodes,
-that itself is an interesting finding about how learnable this signaling
-mechanic is.
+Checkpoints from a short (6,000-episode) validation run are included in `checkpoints/`. In that run, `play_agent` reached ~55-59% against a fully random opponent, while `signal_agent` stayed close to chance (~48-52%) — signaling is the harder credit-assignment problem here, since its effect on the outcome is one step removed (signal → bot's deterministic play → round result) and it has to learn a convention  essentially from scratch.Expect `signal_agent` to need noticeably more training episodes than `play_agent`; if it's still flat after tens of thousands of episodes, that itself is an interesting finding about how learnable this signaling mechanic is.
 
 ## Notes on the design
 
-- Reward is mostly sparse (+1/-1 for winning/losing the game), plus a
-  small optional per-round-win shaping bonus (`--shaping-weight`, default
-  0.05).
-- Observations never reveal absolute seat identity (they're always
-  `[self, teammate, opponent, opponent]`-ordered), so having all four
-  seats share one learning model within a training episode (self-play)
-  costs no generality.
-- `--play-episode-prob` controls the mix of the two training-game types
-  (default 0.5/0.5). If one model seems to be lagging, you can bias
-  training toward it, e.g. `--play-episode-prob 0.3` spends more episodes
-  training `signal_agent`.
+- Reward is mostly sparse (+1/-1 for winning/losing the game), plus a small optional per-round-win shaping bonus (`--shaping-weight`,   default 0.05).
+- Observations never reveal absolute seat identity (they're always `[self, teammate, opponent, opponent]`-ordered), so having all four seats share one learning model within a training episode (self-play) costs no generality.
+- `--play-episode-prob` controls the mix of the two training-game types (default 0.5/0.5). If one model seems to be lagging, you can bias training toward it, e.g. `--play-episode-prob 0.3` spends more episodes training `signal_agent`.
