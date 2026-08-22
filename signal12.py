@@ -75,19 +75,33 @@ class Signal12Error(RuntimeError):
 class Signal12Game:
     """Rules engine for Signal12."""
 
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: Optional[int] = None, team0_evens: Optional[bool] = None):
         self.rng = random.Random(seed)
-        self.reset()
+        self.reset(team0_evens=team0_evens)
 
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def reset(self) -> None:
-        deck = list(DECK)
-        self.rng.shuffle(deck)
-        self.hands: List[List[int]] = [
-            sorted(deck[i * HAND_SIZE:(i + 1) * HAND_SIZE]) for i in range(NUM_PLAYERS)
-        ]
+    def reset(self, team0_evens: Optional[bool] = None) -> None:
+        evens = [c for c in DECK if c % 2 == 0]
+        odds = [c for c in DECK if c % 2 != 0]
+        self.rng.shuffle(evens)
+        self.rng.shuffle(odds)
+
+        if team0_evens is True:
+            team0_cards, team1_cards = evens, odds
+        elif team0_evens is False:
+            team0_cards, team1_cards = odds, evens
+        elif self.rng.random() < 0.5:
+            team0_cards, team1_cards = evens, odds
+        else:
+            team0_cards, team1_cards = odds, evens
+
+        self.hands: List[List[int]] = [[] for _ in range(NUM_PLAYERS)]
+        self.hands[0] = sorted(team0_cards[:HAND_SIZE])
+        self.hands[2] = sorted(team0_cards[HAND_SIZE:])
+        self.hands[1] = sorted(team1_cards[:HAND_SIZE])
+        self.hands[3] = sorted(team1_cards[HAND_SIZE:])
         self.scores: List[int] = [0, 0]  # indexed by team id
         self.round_num = 0
         self.round_history: List[dict] = []  # for rendering / debugging
