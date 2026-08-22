@@ -84,10 +84,10 @@ they cooperate once trained.
 pip install torch numpy
 
 # Train (defaults to 20,000 episodes; adjust as needed)
-python train.py --episodes 20000 --checkpoint-dir checkpoints
+python3 train.py --episodes 20000 --checkpoint-dir checkpoints
 
 # Play against the trained models (they jointly control Players 1, 2, 3)
-python play.py --signal-checkpoint checkpoints/signal_agent_final.pt \
+python3 play.py --signal-checkpoint checkpoints/signal_agent_final.pt \
                 --play-checkpoint checkpoints/play_agent_final.pt
 ```
 
