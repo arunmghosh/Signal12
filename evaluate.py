@@ -42,11 +42,25 @@ ActorFn = Callable[[Signal12Game, int, str, list], int]
 
 
 def bot_signal_fn(game: Signal12Game, player: int, phase: str, legal: list) -> int:
-    return signal_bot.act(game, player)
+    actor = game.current_actor
+    play_order_idx = (game.turn_index + 2) % 4
+    return signal_bot.act(
+        hand=game.hands[player],
+        teammate_hand=game.hands[actor],
+        center=list(game.played.values()),
+        unplayed_opp=game.get_unplayed_opp(actor),
+        player_num=play_order_idx,
+    )
 
 
 def bot_play_fn(game: Signal12Game, player: int, phase: str, legal: list) -> int:
-    return play_bot.act(game.hands[player], game.signals.get(player))
+    return play_bot.act(
+        hand=game.hands[player],
+        center=list(game.played.values()),
+        unplayed_opp=game.get_unplayed_opp(player),
+        player_num=game.turn_index,
+        signal=game.signals.get(player),
+    )
 
 
 def random_fn(game: Signal12Game, player: int, phase: str, legal: list) -> int:

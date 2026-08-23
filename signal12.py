@@ -88,11 +88,11 @@ class Signal12Game:
         self.rng.shuffle(evens)
         self.rng.shuffle(odds)
 
-        if team0_evens is True:
-            team0_cards, team1_cards = evens, odds
-        elif team0_evens is False:
-            team0_cards, team1_cards = odds, evens
-        elif self.rng.random() < 0.5:
+        self.team0_evens = team0_evens
+        if self.team0_evens is None:
+            self.team0_evens = self.rng.random() < 0.5
+
+        if self.team0_evens:
             team0_cards, team1_cards = evens, odds
         else:
             team0_cards, team1_cards = odds, evens
@@ -109,7 +109,8 @@ class Signal12Game:
         self.done = False
         self.winner_team: Optional[int] = None
         self.last_round_winner: Optional[int] = None
-        self.cards_left = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]  # for signaling bot 
+        self.odds_left = [1, 3, 5, 7, 9, 11]
+        self.evens_left = [2, 4, 6, 8, 10, 12]
         self._start_round()
 
     def _start_round(self) -> None:
@@ -144,6 +145,14 @@ class Signal12Game:
             return [SIGNAL_LOW, SIGNAL_HIGH]
         return list(range(len(self.hands[self.current_actor])))
 
+    def get_unplayed_opp(self, player: Optional[int] = None) -> List[int]:
+        p = self.current_actor if player is None else player
+        team = TEAM_OF[p]
+        if self.team0_evens:
+            return list(self.odds_left if team == 0 else self.evens_left)
+        else:
+            return list(self.evens_left if team == 0 else self.odds_left)
+
     # ------------------------------------------------------------------
     # Stepping the game
     # ------------------------------------------------------------------
@@ -161,7 +170,12 @@ class Signal12Game:
         else:
             actor = self.current_actor
             card = self.hands[actor].pop(action)
-            self.cards_left.remove(card)
+
+            if card % 2 == 0:
+                self.evens_left.remove(card)
+            else:
+                self.odds_left.remove(card)
+
             self.played[actor] = card
             self.turn_index += 1
             if self.turn_index == NUM_PLAYERS:

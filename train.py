@@ -102,7 +102,10 @@ def run_play_training_episode(
         obs = game.get_observation(dm)
 
         if phase == PHASE_SIGNAL:
-            action = signal_bot.act(game, dm)
+            actor = game.current_actor
+            play_order_idx = (game.turn_index + 2) % 4
+            action = signal_bot.act(game.hands[dm], game.hands[actor], list(game.played.values()), 
+                                    game.get_unplayed_opp(actor), play_order_idx)
         else:
             if dm in pending:
                 p_state, p_action = pending.pop(dm)
@@ -158,7 +161,8 @@ def run_signal_training_episode(
             action = signal_agent.act(obs, legal, epsilon=epsilon)
             pending[dm] = (obs, action)
         else:
-            action = play_bot.act(game.hands[dm], game.signals.get(dm))
+            action = play_bot.act(game.hands[dm], list(game.played.values()), game.get_unplayed_opp(dm), 
+                                  game.turn_index, game.signals.get(dm))
 
         game.step(action)
 
@@ -193,11 +197,15 @@ def simulate_game(seed: int, actor_fn: ActorFn) -> Signal12Game:
 
 
 def bot_signal_fn(game, player, phase, legal):
-    return signal_bot.act(game, player)
+    actor = game.current_actor
+    play_order_idx = (game.turn_index + 2) % 4
+    return signal_bot.act(game.hands[player], game.hands[actor], list(game.played.values()), 
+                          game.get_unplayed_opp(actor), play_order_idx)
 
 
 def bot_play_fn(game, player, phase, legal):
-    return play_bot.act(game.hands[player], game.signals.get(player))
+    return play_bot.act(game.hands[player], list(game.played.values()), game.get_unplayed_opp(player), 
+                        game.turn_index, game.signals.get(player))
 
 
 def random_fn(game, player, phase, legal):
