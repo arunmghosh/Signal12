@@ -181,10 +181,10 @@ def run_all_evaluations(
          make_controller(ai_sig, bot_play_fn, bot_signal_fn, bot_play_fn)),
 
         ("Play Agent vs Random",
-         make_controller(bot_signal_fn, ai_play, random_fn, random_fn)),
+         make_controller(bot_signal_fn, ai_play, bot_signal_fn, random_fn)),
 
         ("Signal Agent vs Random",
-         make_controller(ai_sig, bot_play_fn, random_fn, random_fn)),
+         make_controller(ai_sig, bot_play_fn, random_fn, bot_play_fn)),
     ]
 
     results = []

@@ -13,44 +13,22 @@ kinds of decisions, a bad/exploratory signal and a bad/exploratory play can
 both occur in the same game, and the shared win/loss reward can't cleanly
 tell either one which of its choices actually mattered.
 
-Why *separate games*, not just separate models?
--------------------------------------------------
-An earlier version of this file still ran both models in the *same* game
-(one team = SignalBot + play_agent, the other = signal_agent + PlayBot).
-That still let bad data leak into each model's inputs: play_agent's
-observation includes the opponent's live signals, which came from a
-still-learning (early on, near-random) signal_agent - so play_agent was
-partly learning to react to noise. Symmetrically, signal_agent's round
-outcomes depended on the opponent's play_agent, itself still learning -
-so signal_agent's reward signal was contaminated by a non-stationary,
-noisy opponent too.
+Agent + Bot vs Bot Team (No Self-Play):
+----------------------------------------
+Training pits the learning agent's team (Team 0) against the scripted Bot team (Team 1):
 
-To fix this, training now runs two entirely separate kinds of games, and
-every episode is randomly one or the other:
+  PLAY-training games:
+      - Team 0 (Agent Team): SignalBot (signals) + play_agent (plays)
+      - Team 1 (Bot Team):   SignalBot (signals) + PlayBot (plays)
+      Transitions are collected exclusively for play_agent on Team 0.
 
-  PLAY-training games: every seat's signal comes from the scripted
-      SignalBot (deterministic heuristic), and every seat's card play
-      comes from the (single, shared) play_agent - i.e. play_agent plays
-      itself, self-play style, with all signals guaranteed to come from a
-      consistent, non-learning source. No signal_agent involved at all.
+  SIGNAL-training games:
+      - Team 0 (Agent Team): signal_agent (signals) + PlayBot (plays)
+      - Team 1 (Bot Team):   SignalBot (signals) + PlayBot (plays)
+      Transitions are collected exclusively for signal_agent on Team 0.
 
-  SIGNAL-training games: every seat's card play comes from the scripted
-      PlayBot (deterministic: HIGH -> highest card, LOW -> lowest card),
-      and every seat's signal comes from the (single, shared) signal_agent
-      - i.e. signal_agent plays itself, with every signal guaranteed to be
-      converted into a play by a consistent, non-learning source. No
-      play_agent involved at all.
-
-Each episode type produces transitions only for its own model/buffer, so
-play_agent only ever sees SignalBot's honest signals, and signal_agent's
-outcomes only ever depend on PlayBot's honest, deterministic response -
-never on the other model's in-progress, noisy behavior. See bots.py for
-the heuristics, and evaluate() below for a separate scenario where the two
-independently-trained models are finally put on the same team together.
-
-Observations are egocentric (see signal12.get_observation) and never
-reveal absolute seat identity, so having all four seats share one learning
-model within an episode (self-play) costs no generality.
+A random variable (agent_evens_prob, default 0.5) controls whether Team 0
+is assigned Evens or Odds in each episode.
 """
 
 from __future__ import annotations
@@ -77,19 +55,20 @@ play_bot = PlayBot()
 
 
 # --------------------------------------------------------------------------
-# Episode generation: two fully separate training regimes
+# Episode generation: two fully separate training regimes (Agent vs Bot Team)
 # --------------------------------------------------------------------------
 def run_play_training_episode(
     play_agent: DQNAgent,
     play_buffer: ReplayBuffer,
     epsilon: float,
     shaping_weight: float = 0.05,
+    agent_evens_prob: float = 0.5,
     seed: Optional[int] = None,
 ) -> Signal12Game:
-    """All four seats signal via SignalBot; all four seats play via the
-    shared play_agent (self-play). Produces transitions only for
-    play_agent - signal_agent is not involved in this episode at all."""
-    game = Signal12Game(seed=seed)
+    """Agent team (Team 0: SignalBot + play_agent) vs Bot team (Team 1: SignalBot + PlayBot).
+    Produces transitions only for play_agent on Team 0."""
+    team0_evens = (random.random() < agent_evens_prob)
+    game = Signal12Game(seed=seed, team0_evens=team0_evens)
 
     pending: Dict[int, Tuple[np.ndarray, int]] = {}
     bonus: Dict[int, float] = {p: 0.0 for p in range(4)}
@@ -97,6 +76,7 @@ def run_play_training_episode(
 
     while not game.done:
         dm = game.current_decision_maker
+        team = TEAM_OF[dm]
         phase = game.phase
         legal = game.legal_actions()
         obs = game.get_observation(dm)
@@ -107,13 +87,17 @@ def run_play_training_episode(
             action = signal_bot.act(game.hands[dm], game.hands[actor], list(game.played.values()), 
                                     game.get_unplayed_opp(actor), play_order_idx)
         else:
-            if dm in pending:
-                p_state, p_action = pending.pop(dm)
-                reward = bonus[dm]
-                bonus[dm] = 0.0
-                play_buffer.push(p_state, p_action, reward, obs, legal, False)
-            action = play_agent.act(obs, legal, epsilon=epsilon)
-            pending[dm] = (obs, action)
+            if team == 0:
+                if dm in pending:
+                    p_state, p_action = pending.pop(dm)
+                    reward = bonus[dm]
+                    bonus[dm] = 0.0
+                    play_buffer.push(p_state, p_action, reward, obs, legal, False)
+                action = play_agent.act(obs, legal, epsilon=epsilon)
+                pending[dm] = (obs, action)
+            else:
+                action = play_bot.act(game.hands[dm], list(game.played.values()), game.get_unplayed_opp(dm), 
+                                      game.turn_index, game.signals.get(dm))
 
         game.step(action)
 
@@ -135,12 +119,13 @@ def run_signal_training_episode(
     signal_buffer: ReplayBuffer,
     epsilon: float,
     shaping_weight: float = 0.05,
+    agent_evens_prob: float = 0.5,
     seed: Optional[int] = None,
 ) -> Signal12Game:
-    """All four seats play via PlayBot; all four seats signal via the
-    shared signal_agent (self-play). Produces transitions only for
-    signal_agent - play_agent is not involved in this episode at all."""
-    game = Signal12Game(seed=seed)
+    """Agent team (Team 0: signal_agent + PlayBot) vs Bot team (Team 1: SignalBot + PlayBot).
+    Produces transitions only for signal_agent on Team 0."""
+    team0_evens = (random.random() < agent_evens_prob)
+    game = Signal12Game(seed=seed, team0_evens=team0_evens)
 
     pending: Dict[int, Tuple[np.ndarray, int]] = {}
     bonus: Dict[int, float] = {p: 0.0 for p in range(4)}
@@ -148,18 +133,25 @@ def run_signal_training_episode(
 
     while not game.done:
         dm = game.current_decision_maker
+        team = TEAM_OF[dm]
         phase = game.phase
         legal = game.legal_actions()
         obs = game.get_observation(dm)
 
         if phase == PHASE_SIGNAL:
-            if dm in pending:
-                p_state, p_action = pending.pop(dm)
-                reward = bonus[dm]
-                bonus[dm] = 0.0
-                signal_buffer.push(p_state, p_action, reward, obs, legal, False)
-            action = signal_agent.act(obs, legal, epsilon=epsilon)
-            pending[dm] = (obs, action)
+            if team == 0:
+                if dm in pending:
+                    p_state, p_action = pending.pop(dm)
+                    reward = bonus[dm]
+                    bonus[dm] = 0.0
+                    signal_buffer.push(p_state, p_action, reward, obs, legal, False)
+                action = signal_agent.act(obs, legal, epsilon=epsilon)
+                pending[dm] = (obs, action)
+            else:
+                actor = game.current_actor
+                play_order_idx = (game.turn_index + 2) % 4
+                action = signal_bot.act(game.hands[dm], game.hands[actor], list(game.played.values()), 
+                                        game.get_unplayed_opp(actor), play_order_idx)
         else:
             action = play_bot.act(game.hands[dm], list(game.played.values()), game.get_unplayed_opp(dm), 
                                   game.turn_index, game.signals.get(dm))
@@ -350,10 +342,12 @@ def train(args: argparse.Namespace) -> None:
         # game (never both) - see module docstring for why.
         if random.random() < args.play_episode_prob:
             run_play_training_episode(play_agent, play_buffer, epsilon=epsilon,
-                                       shaping_weight=args.shaping_weight)
+                                      shaping_weight=args.shaping_weight,
+                                      agent_evens_prob=args.agent_evens_prob)
         else:
             run_signal_training_episode(signal_agent, signal_buffer, epsilon=epsilon,
-                                         shaping_weight=args.shaping_weight)
+                                        shaping_weight=args.shaping_weight,
+                                        agent_evens_prob=args.agent_evens_prob)
 
         if len(play_buffer) >= args.warmup_steps:
             for _ in range(args.train_updates_per_episode):
@@ -416,10 +410,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--eps-end", type=float, default=0.05)
     p.add_argument("--eps-decay-episodes", type=int, default=8000)
     p.add_argument("--shaping-weight", type=float, default=0.05)
+    p.add_argument("--agent-evens-prob", type=float, default=0.5,
+                   help="Probability that the learning agent's team is assigned Evens (vs Odds).")
     p.add_argument("--play-episode-prob", type=float, default=0.5,
                    help="Probability that a given training episode is a play-training game "
-                        "(SignalBot + self-play play_agent) rather than a signal-training game "
-                        "(self-play signal_agent + PlayBot).")
+                        "(SignalBot + play_agent vs Bot Team) rather than a signal-training game "
+                        "(signal_agent + PlayBot vs Bot Team).")
     p.add_argument("--eval-interval", type=int, default=1000)
     p.add_argument("--eval-games", type=int, default=300)
     p.add_argument("--log-interval", type=int, default=200)
